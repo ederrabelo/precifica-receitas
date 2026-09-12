@@ -1,4 +1,9 @@
-export type Unit = 'g' | 'kg' | 'ml' | 'l' | 'un'
+export type Unit =
+  | 'g'
+  | 'kg'
+  | 'ml'
+  | 'l'
+  | 'un'
 
 export interface Ingredient {
   id: string

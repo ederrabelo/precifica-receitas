@@ -1,9 +1,19 @@
 import type {
+  Ingredient,
   PackagingCost,
   Recipe,
+  Unit,
 } from '../types'
 
 const STORAGE_KEY = 'precifica:recipes'
+
+const validUnits: Unit[] = [
+  'g',
+  'kg',
+  'ml',
+  'l',
+  'un',
+]
 
 const emptyPackaging: PackagingCost = {
   purchaseQuantity: 0,
@@ -11,46 +21,225 @@ const emptyPackaging: PackagingCost = {
   usedQuantity: 0,
 }
 
-const normalizeRecipe = (
-  recipe: Partial<Recipe>,
-): Recipe => {
-  const now = new Date().toISOString()
+const isRecord = (
+  value: unknown,
+): value is Record<string, unknown> => {
+  return (
+    typeof value === 'object' &&
+    value !== null
+  )
+}
+
+const isUnit = (
+  value: unknown,
+): value is Unit => {
+  return (
+    typeof value === 'string' &&
+    validUnits.includes(value as Unit)
+  )
+}
+
+const toNonNegativeNumber = (
+  value: unknown,
+): number => {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0
+  )
+    ? value
+    : 0
+}
+
+const toPositiveInteger = (
+  value: unknown,
+  fallback: number,
+): number => {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value > 0
+  )
+    ? value
+    : fallback
+}
+
+const toMargin = (
+  value: unknown,
+): number => {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value < 100
+  )
+    ? value
+    : 50
+}
+
+const toDateString = (
+  value: unknown,
+  fallback: string,
+): string => {
+  if (typeof value !== 'string') {
+    return fallback
+  }
+
+  return Number.isNaN(
+    new Date(value).getTime(),
+  )
+    ? fallback
+    : value
+}
+
+const normalizeIngredient = (
+  value: unknown,
+): Ingredient | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const purchaseUnit = isUnit(
+    value.purchaseUnit,
+  )
+    ? value.purchaseUnit
+    : null
+
+  const usedUnit = isUnit(
+    value.usedUnit,
+  )
+    ? value.usedUnit
+    : null
+
+  if (!purchaseUnit || !usedUnit) {
+    return null
+  }
 
   return {
-    id: recipe.id ?? crypto.randomUUID(),
+    id:
+      typeof value.id === 'string' &&
+      value.id.trim()
+        ? value.id
+        : crypto.randomUUID(),
 
-    name: recipe.name ?? 'Receita sem nome',
+    name:
+      typeof value.name === 'string'
+        ? value.name
+        : '',
 
-    ingredients: Array.isArray(recipe.ingredients)
-      ? recipe.ingredients
-      : [],
+    purchaseQuantity:
+      toNonNegativeNumber(
+        value.purchaseQuantity,
+      ),
 
-    packaging: {
+    purchaseUnit,
+
+    purchasePrice:
+      toNonNegativeNumber(
+        value.purchasePrice,
+      ),
+
+    usedQuantity:
+      toNonNegativeNumber(
+        value.usedQuantity,
+      ),
+
+    usedUnit,
+  }
+}
+
+const normalizePackaging = (
+  value: unknown,
+): PackagingCost => {
+  if (!isRecord(value)) {
+    return {
       ...emptyPackaging,
-      ...(recipe.packaging ?? {}),
-    },
+    }
+  }
+
+  return {
+    purchaseQuantity:
+      toNonNegativeNumber(
+        value.purchaseQuantity,
+      ),
+
+    purchasePrice:
+      toNonNegativeNumber(
+        value.purchasePrice,
+      ),
+
+    usedQuantity:
+      toNonNegativeNumber(
+        value.usedQuantity,
+      ),
+  }
+}
+
+const normalizeRecipe = (
+  value: unknown,
+): Recipe | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const now = new Date().toISOString()
+
+  const ingredients =
+    Array.isArray(value.ingredients)
+      ? value.ingredients
+          .map(normalizeIngredient)
+          .filter(
+            (
+              ingredient,
+            ): ingredient is Ingredient =>
+              ingredient !== null,
+          )
+      : []
+
+  return {
+    id:
+      typeof value.id === 'string' &&
+      value.id.trim()
+        ? value.id
+        : crypto.randomUUID(),
+
+    name:
+      typeof value.name === 'string'
+        ? value.name
+        : 'Receita sem nome',
+
+    ingredients,
+
+    packaging:
+      normalizePackaging(
+        value.packaging,
+      ),
 
     yieldQuantity:
-      typeof recipe.yieldQuantity === 'number' &&
-      recipe.yieldQuantity > 0
-        ? recipe.yieldQuantity
-        : 1,
+      toPositiveInteger(
+        value.yieldQuantity,
+        1,
+      ),
 
     salePricePerUnit:
-      typeof recipe.salePricePerUnit === 'number'
-        ? recipe.salePricePerUnit
-        : 0,
+      toNonNegativeNumber(
+        value.salePricePerUnit,
+      ),
 
     margin:
-      typeof recipe.margin === 'number'
-        ? recipe.margin
-        : 50,
+      toMargin(value.margin),
 
     createdAt:
-      recipe.createdAt ?? now,
+      toDateString(
+        value.createdAt,
+        now,
+      ),
 
     updatedAt:
-      recipe.updatedAt ?? now,
+      toDateString(
+        value.updatedAt,
+        now,
+      ),
   }
 }
 
@@ -63,7 +252,7 @@ export const getSavedRecipes = (): Recipe[] => {
       return []
     }
 
-    const parsedRecipes =
+    const parsedRecipes: unknown =
       JSON.parse(storedRecipes)
 
     if (!Array.isArray(parsedRecipes)) {
@@ -71,13 +260,21 @@ export const getSavedRecipes = (): Recipe[] => {
     }
 
     return parsedRecipes
-      .map((recipe) =>
-        normalizeRecipe(recipe),
+      .map(normalizeRecipe)
+      .filter(
+        (
+          recipe,
+        ): recipe is Recipe =>
+          recipe !== null,
       )
       .sort(
         (a, b) =>
-          new Date(b.updatedAt).getTime() -
-          new Date(a.updatedAt).getTime(),
+          new Date(
+            b.updatedAt,
+          ).getTime() -
+          new Date(
+            a.updatedAt,
+          ).getTime(),
       )
   } catch {
     return []

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
@@ -39,7 +39,8 @@ import {
   calculateMargin,
   calculatePackagingCost,
   calculateProfit,
-  calculateSuggestedPrice,
+  calculateRevenue,
+  calculateSuggestedUnitPrice,
   calculateTotalCost,
   calculateUnitValue,
   formatCurrency,
@@ -92,6 +93,238 @@ const getDefaultUsedUnit = (unit: Unit): Unit => {
     default:
       return unit
   }
+}
+
+const getCompatibleUnits = (
+  purchaseUnit: Unit,
+): Array<{
+  value: Unit
+  label: string
+}> => {
+  if (
+    purchaseUnit === 'g' ||
+    purchaseUnit === 'kg'
+  ) {
+    return units.filter(
+      (unit) =>
+        unit.value === 'g' ||
+        unit.value === 'kg',
+    )
+  }
+
+  if (
+    purchaseUnit === 'ml' ||
+    purchaseUnit === 'l'
+  ) {
+    return units.filter(
+      (unit) =>
+        unit.value === 'ml' ||
+        unit.value === 'l',
+    )
+  }
+
+  return units.filter(
+    (unit) => unit.value === 'un',
+  )
+}
+
+
+type FeedbackSeverity = 'success' | 'error' | 'info'
+
+const getUnitGroup = (
+  unit: Unit,
+): 'weight' | 'volume' | 'unit' => {
+  if (unit === 'g' || unit === 'kg') {
+    return 'weight'
+  }
+
+  if (unit === 'ml' || unit === 'l') {
+    return 'volume'
+  }
+
+  return 'unit'
+}
+
+const areUnitsCompatible = (
+  firstUnit: Unit,
+  secondUnit: Unit,
+): boolean => {
+  return (
+    getUnitGroup(firstUnit) ===
+    getUnitGroup(secondUnit)
+  )
+}
+
+const isPositiveFiniteNumber = (
+  value: number,
+): boolean => {
+  return Number.isFinite(value) && value > 0
+}
+
+const isNonNegativeFiniteNumber = (
+  value: number,
+): boolean => {
+  return Number.isFinite(value) && value >= 0
+}
+
+const isPositiveInteger = (
+  value: number,
+): boolean => {
+  return (
+    Number.isInteger(value) &&
+    value > 0
+  )
+}
+
+const isIngredientEmpty = (
+  ingredient: Ingredient,
+): boolean => {
+  return (
+    ingredient.name.trim() === '' &&
+    ingredient.purchaseQuantity === 0 &&
+    ingredient.purchasePrice === 0 &&
+    ingredient.usedQuantity === 0
+  )
+}
+
+const isPackagingEmpty = (
+  value: PackagingCost,
+): boolean => {
+  return (
+    value.purchaseQuantity === 0 &&
+    value.purchasePrice === 0 &&
+    value.usedQuantity === 0
+  )
+}
+
+interface RecipeDraftValidationInput {
+  recipeName: string
+  ingredients: Ingredient[]
+  packaging: PackagingCost
+  yieldQuantity: number
+  salePricePerUnit: number
+  margin: number
+}
+
+const validateRecipeDraft = ({
+  recipeName,
+  ingredients,
+  packaging,
+  yieldQuantity,
+  salePricePerUnit,
+  margin,
+}: RecipeDraftValidationInput): string | null => {
+  if (!recipeName.trim()) {
+    return 'Informe o nome da receita.'
+  }
+
+  if (!isPositiveInteger(yieldQuantity)) {
+    return 'O rendimento deve ser um número inteiro maior que zero.'
+  }
+
+  if (
+    !Number.isFinite(margin) ||
+    margin < 0 ||
+    margin >= 100
+  ) {
+    return 'A margem deve estar entre 0% e 99%.'
+  }
+
+  if (
+    !isNonNegativeFiniteNumber(
+      salePricePerUnit,
+    )
+  ) {
+    return 'O preço atual por unidade não é válido.'
+  }
+
+  const filledIngredients =
+    ingredients.filter(
+      (ingredient) =>
+        !isIngredientEmpty(ingredient),
+    )
+
+  if (filledIngredients.length === 0) {
+    return 'Adicione pelo menos um ingrediente completo.'
+  }
+
+  for (
+    let index = 0;
+    index < filledIngredients.length;
+    index += 1
+  ) {
+    const ingredient =
+      filledIngredients[index]
+
+    const ingredientLabel =
+      ingredient.name.trim() ||
+      `Ingrediente ${index + 1}`
+
+    if (!ingredient.name.trim()) {
+      return `${ingredientLabel}: informe o nome do produto.`
+    }
+
+    if (
+      !isPositiveFiniteNumber(
+        ingredient.purchaseQuantity,
+      )
+    ) {
+      return `${ingredientLabel}: informe uma quantidade comprada maior que zero.`
+    }
+
+    if (
+      !isPositiveFiniteNumber(
+        ingredient.purchasePrice,
+      )
+    ) {
+      return `${ingredientLabel}: informe um valor pago maior que zero.`
+    }
+
+    if (
+      !isPositiveFiniteNumber(
+        ingredient.usedQuantity,
+      )
+    ) {
+      return `${ingredientLabel}: informe uma quantidade usada maior que zero.`
+    }
+
+    if (
+      !areUnitsCompatible(
+        ingredient.purchaseUnit,
+        ingredient.usedUnit,
+      )
+    ) {
+      return `${ingredientLabel}: a unidade comprada e a unidade usada são incompatíveis.`
+    }
+  }
+
+  if (!isPackagingEmpty(packaging)) {
+    if (
+      !isPositiveInteger(
+        packaging.purchaseQuantity,
+      )
+    ) {
+      return 'Embalagem: a quantidade comprada deve ser um número inteiro maior que zero.'
+    }
+
+    if (
+      !isPositiveFiniteNumber(
+        packaging.purchasePrice,
+      )
+    ) {
+      return 'Embalagem: informe o valor total pago.'
+    }
+
+    if (
+      !isPositiveInteger(
+        packaging.usedQuantity,
+      )
+    ) {
+      return 'Embalagem: a quantidade usada deve ser um número inteiro maior que zero.'
+    }
+  }
+
+  return null
 }
 
 const formatCurrencyInput = (value: number): string => {
@@ -166,6 +399,16 @@ function App() {
   )
 
   const [feedbackMessage, setFeedbackMessage] = useState('')
+  const [feedbackSeverity, setFeedbackSeverity] =
+    useState<FeedbackSeverity>('success')
+
+  const showFeedback = (
+    message: string,
+    severity: FeedbackSeverity = 'success',
+  ) => {
+    setFeedbackMessage(message)
+    setFeedbackSeverity(severity)
+  }
 
   const ingredientsCost = useMemo(
     () => calculateIngredientsCost(ingredients),
@@ -182,22 +425,32 @@ function App() {
     [ingredients, packaging],
   )
 
-  const safeYield = yieldQuantity > 0 ? yieldQuantity : 1
+  const safeYield = isPositiveInteger(
+    yieldQuantity,
+  )
+    ? yieldQuantity
+    : 0
 
   const unitCost = calculateUnitValue(
     totalCost,
     safeYield,
   )
 
-  const suggestedTotalPrice = useMemo(
-    () => calculateSuggestedPrice(totalCost, margin),
-    [totalCost, margin],
+  const suggestedUnitPrice = useMemo(
+    () =>
+      calculateSuggestedUnitPrice(
+        totalCost,
+        margin,
+        safeYield,
+      ),
+    [totalCost, margin, safeYield],
   )
 
-  const suggestedUnitPrice = calculateUnitValue(
-    suggestedTotalPrice,
-    safeYield,
-  )
+  const suggestedTotalPrice =
+    calculateRevenue(
+      suggestedUnitPrice,
+      safeYield,
+    )
 
   const suggestedProfit = calculateProfit(
     totalCost,
@@ -209,8 +462,17 @@ function App() {
     safeYield,
   )
 
+  const suggestedEffectiveMargin =
+    calculateMargin(
+      totalCost,
+      suggestedTotalPrice,
+    )
+
   const currentRevenue =
-    salePricePerUnit * safeYield
+    calculateRevenue(
+      salePricePerUnit,
+      safeYield,
+    )
 
   const currentProfit = calculateProfit(
     totalCost,
@@ -265,7 +527,9 @@ function App() {
         ingredient.name.trim() !== '' ||
         ingredient.purchaseQuantity > 0 ||
         ingredient.purchasePrice > 0 ||
-        ingredient.usedQuantity > 0,
+        ingredient.usedQuantity > 0 ||
+        ingredient.purchaseUnit !== 'g' ||
+        ingredient.usedUnit !== 'g',
     )
 
     const hasPackagingData =
@@ -295,6 +559,41 @@ function App() {
     hasNewRecipeData ||
     Boolean(savedRecipe && hasUnsavedChanges)
 
+  useEffect(() => {
+    if (!showFloatingActions) {
+      return
+    }
+
+    const handleBeforeUnload = (
+      event: BeforeUnloadEvent,
+    ) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener(
+      'beforeunload',
+      handleBeforeUnload,
+    )
+
+    return () => {
+      window.removeEventListener(
+        'beforeunload',
+        handleBeforeUnload,
+      )
+    }
+  }, [showFloatingActions])
+
+  const confirmDiscardChanges = (): boolean => {
+    if (!showFloatingActions) {
+      return true
+    }
+
+    return window.confirm(
+      'Existem alterações não salvas. Deseja descartá-las e continuar?',
+    )
+  }
+
   const updateIngredient = <K extends keyof Ingredient>(
     id: string,
     field: K,
@@ -317,15 +616,33 @@ function App() {
     purchaseUnit: Unit,
   ) => {
     setIngredients((current) =>
-      current.map((ingredient) =>
-        ingredient.id === id
-          ? {
-              ...ingredient,
-              purchaseUnit,
-              usedUnit: getDefaultUsedUnit(purchaseUnit),
-            }
-          : ingredient,
-      ),
+      current.map((ingredient) => {
+        if (ingredient.id !== id) {
+          return ingredient
+        }
+
+        const unitsRemainCompatible =
+          areUnitsCompatible(
+            ingredient.usedUnit,
+            purchaseUnit,
+          )
+
+        return {
+          ...ingredient,
+          purchaseUnit,
+
+          usedUnit: unitsRemainCompatible
+            ? ingredient.usedUnit
+            : getDefaultUsedUnit(
+                purchaseUnit,
+              ),
+
+          usedQuantity:
+            unitsRemainCompatible
+              ? ingredient.usedQuantity
+              : 0,
+        }
+      }),
     )
   }
 
@@ -348,7 +665,7 @@ function App() {
     })
   }
 
-  const newRecipe = () => {
+  const resetRecipeEditor = () => {
     setRecipeName('')
     setIngredients([createIngredient()])
     setPackaging(createPackaging())
@@ -356,37 +673,92 @@ function App() {
     setSalePricePerUnit(0)
     setMargin(50)
     setCurrentRecipeId(null)
+  }
 
+  const newRecipe = () => {
+    if (!confirmDiscardChanges()) {
+      return
+    }
+
+    resetRecipeEditor()
     scrollToSection('recipe-section')
   }
 
   const saveRecipe = () => {
+    const validationError =
+      validateRecipeDraft({
+        recipeName,
+        ingredients,
+        packaging,
+        yieldQuantity,
+        salePricePerUnit,
+        margin,
+      })
+
+    if (validationError) {
+      showFeedback(
+        validationError,
+        'error',
+      )
+      scrollToSection('recipe-section')
+      return
+    }
+
     const name = recipeName.trim()
 
-    if (!name) {
-      setFeedbackMessage('Informe o nome da receita.')
+    const cleanIngredients =
+      ingredients
+        .filter(
+          (ingredient) =>
+            !isIngredientEmpty(ingredient),
+        )
+        .map((ingredient) => ({
+          ...ingredient,
+          name: ingredient.name.trim(),
+        }))
+
+    const cleanPackaging =
+      isPackagingEmpty(packaging)
+        ? createPackaging()
+        : {
+            ...packaging,
+          }
+
+    const cleanTotalCost =
+      calculateTotalCost(
+        cleanIngredients,
+        cleanPackaging,
+      )
+
+    if (cleanTotalCost <= 0) {
+      showFeedback(
+        'Não foi possível calcular um custo válido para esta receita.',
+        'error',
+      )
+      scrollToSection('recipe-section')
       return
     }
 
     const now = new Date().toISOString()
 
-    const existingRecipe = savedRecipes.find(
-      (recipe) => recipe.id === currentRecipeId,
-    )
+    const existingRecipe =
+      savedRecipes.find(
+        (recipe) =>
+          recipe.id === currentRecipeId,
+      )
 
     const recipe: Recipe = {
-      id: currentRecipeId ?? crypto.randomUUID(),
+      id:
+        currentRecipeId ??
+        crypto.randomUUID(),
+
       name,
 
-      ingredients: ingredients.map((ingredient) => ({
-        ...ingredient,
-      })),
+      ingredients: cleanIngredients,
 
-      packaging: {
-        ...packaging,
-      },
+      packaging: cleanPackaging,
 
-      yieldQuantity: safeYield,
+      yieldQuantity,
       salePricePerUnit,
       margin,
 
@@ -396,40 +768,96 @@ function App() {
       updatedAt: now,
     }
 
-    const updatedRecipes =
-      saveRecipeToStorage(recipe)
+    try {
+      const updatedRecipes =
+        saveRecipeToStorage(recipe)
 
-    setSavedRecipes(updatedRecipes)
-    setCurrentRecipeId(recipe.id)
+      setSavedRecipes(updatedRecipes)
+      setCurrentRecipeId(recipe.id)
 
-    setFeedbackMessage(
-      existingRecipe
-        ? 'Receita atualizada.'
-        : 'Receita salva neste dispositivo.',
-    )
+      // Mantém o editor exatamente igual
+      // ao objeto persistido para que o
+      // indicador de alterações desapareça.
+      setRecipeName(recipe.name)
 
-    scrollToSection('saved-recipes-section')
+      setIngredients(
+        recipe.ingredients.map(
+          (ingredient) => ({
+            ...ingredient,
+          }),
+        ),
+      )
+
+      setPackaging({
+        ...recipe.packaging,
+      })
+
+      showFeedback(
+        existingRecipe
+          ? 'Receita atualizada.'
+          : 'Receita salva neste dispositivo.',
+        'success',
+      )
+
+      scrollToSection(
+        'saved-recipes-section',
+      )
+    } catch {
+      showFeedback(
+        'Não foi possível salvar a receita neste dispositivo.',
+        'error',
+      )
+    }
   }
 
-  const loadRecipe = (recipe: Recipe) => {
+  const applyRecipeToEditor = (
+    recipe: Recipe,
+  ) => {
     const snapshot = cloneRecipe(recipe)
 
     setCurrentRecipeId(snapshot.id)
     setRecipeName(snapshot.name)
 
     setIngredients(
-      snapshot.ingredients.map((ingredient) => ({
-        ...ingredient,
-      })),
+      snapshot.ingredients.map(
+        (ingredient) => ({
+          ...ingredient,
+        }),
+      ),
     )
 
     setPackaging({
       ...snapshot.packaging,
     })
 
-    setYieldQuantity(snapshot.yieldQuantity)
-    setSalePricePerUnit(snapshot.salePricePerUnit)
+    setYieldQuantity(
+      snapshot.yieldQuantity,
+    )
+
+    setSalePricePerUnit(
+      snapshot.salePricePerUnit,
+    )
+
     setMargin(snapshot.margin)
+  }
+
+  const loadRecipe = (recipe: Recipe) => {
+    if (
+      recipe.id !== currentRecipeId &&
+      !confirmDiscardChanges()
+    ) {
+      return
+    }
+
+    if (
+      recipe.id === currentRecipeId &&
+      hasUnsavedChanges &&
+      !confirmDiscardChanges()
+    ) {
+      return
+    }
+
+    applyRecipeToEditor(recipe)
 
     window.scrollTo({
       top: 0,
@@ -460,12 +888,17 @@ function App() {
     setSalePricePerUnit(snapshot.salePricePerUnit)
     setMargin(snapshot.margin)
 
-    setFeedbackMessage(
+    showFeedback(
       'Alterações desfeitas. A receita voltou ao último estado salvo.',
+      'info',
     )
   }
 
   const duplicateRecipe = (recipe: Recipe) => {
+    if (!confirmDiscardChanges()) {
+      return
+    }
+
     const now = new Date().toISOString()
 
     const duplicatedRecipe: Recipe = {
@@ -475,12 +908,13 @@ function App() {
 
       name: `${recipe.name} - cópia`,
 
-      ingredients: recipe.ingredients.map(
-        (ingredient) => ({
-          ...ingredient,
-          id: crypto.randomUUID(),
-        }),
-      ),
+      ingredients:
+        recipe.ingredients.map(
+          (ingredient) => ({
+            ...ingredient,
+            id: crypto.randomUUID(),
+          }),
+        ),
 
       packaging: {
         ...recipe.packaging,
@@ -490,28 +924,73 @@ function App() {
       updatedAt: now,
     }
 
-    const updatedRecipes =
-      saveRecipeToStorage(duplicatedRecipe)
+    try {
+      const updatedRecipes =
+        saveRecipeToStorage(
+          duplicatedRecipe,
+        )
 
-    setSavedRecipes(updatedRecipes)
-    loadRecipe(duplicatedRecipe)
+      setSavedRecipes(updatedRecipes)
 
-    setFeedbackMessage(
-      'Receita duplicada. Você já pode alterar a cópia.',
-    )
+      applyRecipeToEditor(
+        duplicatedRecipe,
+      )
+
+      showFeedback(
+        'Receita duplicada. Você já pode alterar a cópia.',
+        'success',
+      )
+    } catch {
+      showFeedback(
+        'Não foi possível duplicar a receita.',
+        'error',
+      )
+    }
   }
 
   const deleteRecipe = (recipeId: string) => {
-    const updatedRecipes =
-      deleteRecipeFromStorage(recipeId)
+    const recipeToDelete =
+      savedRecipes.find(
+        (recipe) =>
+          recipe.id === recipeId,
+      )
 
-    setSavedRecipes(updatedRecipes)
-
-    if (currentRecipeId === recipeId) {
-      newRecipe()
+    if (!recipeToDelete) {
+      return
     }
 
-    setFeedbackMessage('Receita excluída.')
+    const confirmed = window.confirm(
+      `Excluir a receita "${recipeToDelete.name}"? Esta ação não pode ser desfeita.`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      const updatedRecipes =
+        deleteRecipeFromStorage(
+          recipeId,
+        )
+
+      setSavedRecipes(updatedRecipes)
+
+      if (
+        currentRecipeId === recipeId
+      ) {
+        resetRecipeEditor()
+      }
+
+      showFeedback(
+        'Receita excluída.',
+        'success',
+      )
+    } catch {
+      showFeedback(
+        'Não foi possível excluir a receita.',
+        'error',
+      )
+    }
   }
 
   return (
@@ -905,7 +1384,9 @@ function App() {
                                 )
                               }
                             >
-                              {units.map((unit) => (
+                              {getCompatibleUnits(
+                                ingredient.purchaseUnit,
+                              ).map((unit) => (
                                 <MenuItem
                                   key={unit.value}
                                   value={unit.value}
@@ -1211,7 +1692,18 @@ function App() {
               >
                 <TextField
                   label="Rendimento da receita"
-                  helperText="Quantas unidades esta receita produz?"
+                  helperText={
+                    isPositiveInteger(
+                      yieldQuantity,
+                    )
+                      ? 'Quantas unidades esta receita produz?'
+                      : 'Informe um número inteiro maior que zero.'
+                  }
+                  error={
+                    !isPositiveInteger(
+                      yieldQuantity,
+                    )
+                  }
                   type="number"
                   value={yieldQuantity || ''}
                   onChange={(event) =>
@@ -1219,15 +1711,11 @@ function App() {
                       Number(event.target.value),
                     )
                   }
-                  onBlur={() => {
-                    if (yieldQuantity <= 0) {
-                      setYieldQuantity(1)
-                    }
-                  }}
                   slotProps={{
                     htmlInput: {
                       min: 1,
                       step: 1,
+                      inputMode: 'numeric',
                     },
                   }}
                 />
@@ -1631,8 +2119,15 @@ function App() {
                   />
 
                   <ResultRow
-                    label="Margem"
+                    label="Margem desejada"
                     value={`${margin}%`}
+                  />
+
+                  <ResultRow
+                    label="Margem efetiva"
+                    value={`${formatPercentage(
+                      suggestedEffectiveMargin,
+                    )}%`}
                   />
                 </Stack>
 
@@ -1682,15 +2177,16 @@ function App() {
                 }}
               >
                 {marginOptions.map((option) => {
-                  const price =
-                    calculateSuggestedPrice(
+                  const unitPrice =
+                    calculateSuggestedUnitPrice(
                       totalCost,
                       option,
+                      safeYield,
                     )
 
-                  const unitPrice =
-                    calculateUnitValue(
-                      price,
+                  const price =
+                    calculateRevenue(
+                      unitPrice,
                       safeYield,
                     )
 
@@ -1698,6 +2194,12 @@ function App() {
                     calculateProfit(
                       totalCost,
                       price,
+                    )
+
+                  const optionProfitPerUnit =
+                    calculateUnitValue(
+                      optionProfit,
+                      safeYield,
                     )
 
                   return (
@@ -1722,7 +2224,7 @@ function App() {
                         variant="body2"
                         color="text.secondary"
                       >
-                        Margem {option}%
+                        Margem desejada {option}%
                       </Typography>
 
                       <Typography
@@ -1764,11 +2266,26 @@ function App() {
                           display: 'block',
                         }}
                       >
-                        Lucro:{' '}
+                        Lucro/unidade:{' '}
                         {formatCurrency(
-                          optionProfit,
+                          optionProfitPerUnit,
                         )}
                       </Typography>
+
+                      {safeYield > 1 && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{
+                            display: 'block',
+                          }}
+                        >
+                          Lucro total:{' '}
+                          {formatCurrency(
+                            optionProfit,
+                          )}
+                        </Typography>
+                      )}
                     </Paper>
                   )
                 })}
@@ -1877,7 +2394,7 @@ function App() {
         }}
       >
         <Alert
-          severity="success"
+          severity={feedbackSeverity}
           variant="filled"
           onClose={() =>
             setFeedbackMessage('')
@@ -1949,15 +2466,10 @@ function SavedRecipeCard({
       recipe.packaging,
     )
 
-  const suggestedTotal =
-    calculateSuggestedPrice(
+  const unitPrice =
+    calculateSuggestedUnitPrice(
       totalCost,
       recipe.margin,
-    )
-
-  const unitPrice =
-    calculateUnitValue(
-      suggestedTotal,
       recipe.yieldQuantity,
     )
 
