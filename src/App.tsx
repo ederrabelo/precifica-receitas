@@ -122,6 +122,15 @@ const formatSavedDate = (value: string): string => {
   }).format(new Date(value))
 }
 
+const scrollToSection = (id: string) => {
+  window.requestAnimationFrame(() => {
+    document.getElementById(id)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  })
+}
+
 const cloneRecipe = (recipe: Recipe): Recipe => ({
   ...recipe,
 
@@ -282,6 +291,10 @@ function App() {
     margin,
   ])
 
+  const showFloatingActions =
+    hasNewRecipeData ||
+    Boolean(savedRecipe && hasUnsavedChanges)
+
   const updateIngredient = <K extends keyof Ingredient>(
     id: string,
     field: K,
@@ -344,10 +357,7 @@ function App() {
     setMargin(50)
     setCurrentRecipeId(null)
 
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth',
-    })
+    scrollToSection('recipe-section')
   }
 
   const saveRecipe = () => {
@@ -397,6 +407,8 @@ function App() {
         ? 'Receita atualizada.'
         : 'Receita salva neste dispositivo.',
     )
+
+    scrollToSection('saved-recipes-section')
   }
 
   const loadRecipe = (recipe: Recipe) => {
@@ -506,10 +518,19 @@ function App() {
     <Box
       sx={{
         minHeight: '100vh',
-        py: {
+        pt: {
           xs: 3,
           md: 6,
         },
+        pb: showFloatingActions
+          ? {
+              xs: 28,
+              sm: 22,
+            }
+          : {
+              xs: 3,
+              md: 6,
+            },
       }}
     >
       <Container maxWidth="lg">
@@ -582,6 +603,7 @@ function App() {
           </Box>
 
           <Paper
+            id="saved-recipes-section"
             variant="outlined"
             sx={{
               p: {
@@ -649,6 +671,7 @@ function App() {
           </Paper>
 
           <Paper
+            id="recipe-section"
             variant="outlined"
             sx={{
               p: {
@@ -1756,7 +1779,7 @@ function App() {
         </Stack>
       </Container>
 
-      {(hasNewRecipeData || (savedRecipe && hasUnsavedChanges)) && (
+      {showFloatingActions && (
         <Paper
           elevation={8}
           sx={{
